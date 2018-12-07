@@ -1,0 +1,72 @@
+#!/usr/bin/env python
+# -*- coding: utf-8; py-indent-offset:4 -*-
+# ##################################################################
+#  Quant Robot for Cryptocurrency
+# author: Huang kejie
+# Date : 2018.11.26
+##################################################################
+
+import logging
+import ssl
+import json
+import atexit
+import signal
+
+from time import sleep
+from threading import Thread, Event, Timer
+from multiprocessing import Queue
+
+
+## private import package
+
+from qbrobot import settings
+from qbrobot.util import log
+
+#
+# Helpers
+#
+logger = logging.getLogger()
+
+# 
+# DataBoard 负责从data_q读取数据，并维护数据面板
+#
+class DataBoard(Thread):
+
+    def __init__( self , data_q ):
+        """
+            __init__ 初始化数据面板管理器
+        Parameters:
+            data_q -  数据队列，用于从connector接收数据
+        Returns:
+            None
+        Raises:
+            None
+        """
+
+        Thread.__init__(self)
+
+        atexit.register(self.exit)
+        signal.signal(signal.SIGTERM, self.exit)
+
+        self.q = data_q 
+
+        # 存放数据的空间
+        self.tables = dict()
+
+
+
+    def read_data( self ):
+        """
+            read_data 从data_q中读取数据
+        Parameters:
+            data_q -  数据队列，用于从connector接收数据
+        Returns:
+            None
+        Raises:
+            None
+        """
+
+        pass 
+
+
+

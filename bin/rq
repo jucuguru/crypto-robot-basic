@@ -1,0 +1,5 @@
+#/bin/bash
+
+echo "Welcome , I'm Roboter Quant."
+cd $QR_HOME/src
+python startbot.py 
