@@ -90,13 +90,18 @@ class HttpConnector(Connector):
     def __ping(self):
         while self.conntype == 'http'  and self.isconnected :
             #logger.debug(type(self.conn))
-            balance = self.conn.fetch_balance()
-            if not balance :
+            try : 
+                balance = self.conn.fetch_balance()
+                if not balance :
+                    self.ping_status = False
+                    logger.warning( ( '%s Connector ping error...'%self.name ) )
+                else:
+                    self.ping_status = True
+                    logger.debug( '%s Connector  ping OK. balance is %s'%(self.name, balance['free']['BTC'] ) )
+            except Exception as e:
+                logger.debug(( '%s Connector ping error...'%self.name ) )
                 self.ping_status = False
-                logger.warning( ( '%s Connector ping error...'%self.name ) )
-            else:
-                self.ping_status = True
-                logger.debug( '%s Connector  ping OK. balance is %s'%(self.name, balance['free']['BTC'] ) )
+
             sleep(5)
 
 
@@ -194,19 +199,15 @@ class HttpConnector(Connector):
 
 
 
-class WSMHttpConnector(HttpConnector):
-    # TODO WebSocket Mock HttpConnector  is backup for Websocket Connector
-    # 通过http rest API（ccxt）模拟 websocket connector的订阅数据的功能
-    # 把订阅数据功能改为主动轮询数据，返回的信息通过data_q返回到后台。
-    def run(self):
-        pass 
-        #if self.conntype == 'http' and self.ping_status:
-
 class BitfinexWebsocketConnector(Connector):
-
+    """
+      WebsocketConnector, 保持websocket长链接，提供稳定的实时链接。
+        bitfinex 订阅数据后，返回的是队列，需要读取队列，然后集中写入到data_q， 传入后台。
+    """
     def connect(self):
         """
-            识别exchange和conntype，选择class 建立链接. 
+            识别exchange和conntype，选择class 建立链接.  
+
             param :
                 None
             return :
@@ -219,31 +220,167 @@ class BitfinexWebsocketConnector(Connector):
         logger.debug('Starting to create the connector %s %s %s %s %s %s...'%( 
                     self.name, self.exchange, self.symbol, self.conntype, self.usage, self.baseurl))
 
-        if self.exchange == 'bitmex':
-            self.conn = BitMEXWebsocket( exchange = self.exchange, 
-                                         endpoint = self.baseurl, 
-                                         symbol = self.symbol, 
-                                         api_key = self.api_key, 
-                                         api_secret= self.api_secret,
-                                         data_q = self.q ,
-                                         subtopics = self.subtopics )
+        if self.exchange == 'bitfinex':
+            if self.api_key and self.api_secret and len( self.api_key ) and len( self.api_secret ) : 
+                self.auth = True
+                self.conn = BtfxWss( key = self.api_key, secret = self.api_secret )
+            else:
+                self.auth = False
+                self.conn = BtfxWss( )
+
+            self.conn.start()
+
         else:
             logger.warning('Do not support exchange %s, please check the settings.py .'% self.exchange)
+            return False 
 
-        if self.conn and not self.conn.exited:
+        # 建立链接，开始等待联通，并订阅信息
+        if self.conn :
+
+            # 等待链接到位
+            while not self.conn.conn.connected.is_set():
+                sleep(1)
+
             logger.debug('Created the connector OK %s %s %s %s %s %s...'%( 
                 self.name, self.exchange, self.symbol, self.conntype, self.usage, self.baseurl))
+
+            # Subscribe to some channels
+            self.conn.subscribe_to_ticker(self.symbol)
+            self.conn.subscribe_to_order_book(self.symbol)
+            self.conn.subscribe_to_trades(self.symbol)
+            self.conn.subscribe_to_candles(pair = self.symbol, timeframe = '1m')
+
+            sleep(2)
+
+            self.ticker_q = self.conn.tickers(self.symbol)
+            self.books_q = self.conn.books(self.symbol)
+            self.trades_q = self.conn.trades(self.symbol)
+            self.candles_q = self.conn.candles(self.symbol)
+            self.account_q = self.conn.account
+
             self.isconnected = True
+            self.run()
             return True
         else :
             return False
 
 
+    def __pass_to_robot(self, channel, data ):
+        logger.debug( "%s %s"%(channel, data ) )
+        return self.q.put(( channel, data ))
+
+
+    def __get_data_from_queue(self):
+        """
+            如果是 bitfinex 链接，定期轮询queue，并把数据传入后端
+        """
+        while self.exchange == 'bitfinex' and self.conntype == 'websocket'  and self.isconnected :
+            channel = None
+            data = None
+            if not self.account_q.empty():
+                data = self.account_q.get(timeout=0.1)
+                channel = (self.exchange , 'account', self.symbol ) 
+            
+            if not self.ticker_q.empty():
+                data = self.ticker_q.get(timeout=0.1)
+                channel = (self.exchange , 'ticker', self.symbol ) 
+            
+            if not self.books_q.empty():
+                data = self.books_q.get(timeout=0.1)
+                channel = (self.exchange , 'book', self.symbol ) 
+            
+            if not self.trades_q.empty():
+                data = self.trades_q.get(timeout=0.1)
+                channel = (self.exchange , 'trade', self.symbol ) 
+            
+            if not self.candles_q.empty():
+                data = self.candles_q.get(timeout=0.1)
+                channel = (self.exchange , 'candle', self.symbol ) 
+
+            if channel and data:
+                self.__pass_to_robot( channel , data )
+
+            sleep(0.1)
+
+
+
+
+    def run(self):
+        """ 
+            如果是 websocket链接，已经创建线程，Connector只是管理
+            如果是 bitfinex 链接，定期轮询queue，并把数据传入后端
+        """
+        if self.conntype == 'websocket' and self.exchange == 'bitfinex' :
+
+            logger.info('%s %s threading is started and running...'%(self.name, self.conntype))     
+
+            # 如果是ORDER，需要循环心跳，keeplive，保持心跳和循环检查。。。
+            t = Thread(target=self.__get_data_from_queue)
+            t.daemon = True
+            t.start()
+
+        return True
+
+
+
+    def reconnect(self):
+        # TODO
+        logger.debug('connector %s reconnect to  %s %s %s %s %s...'%( 
+                    self.name, self.exchange, self.symbol, self.conntype, self.usage, self.baseurl))
+
+        conn_timeout = 5
+        while not self.isconnected and conn_timeout : 
+            ret = self.connect()
+            sleep(1)
+            conn_timeout -= 1 
+
+        if not ret:
+            logger.debug('connector %s reconnect is failed...  %s %s %s %s %s...'%( 
+                    self.name, self.exchange, self.symbol, self.conntype, self.usage, self.baseurl))
+
+        return ret 
+
+    def disconnect( self ):
+        if self.conntype == 'websocket':
+            # Unsubscribing from channels:
+            self.conn.unsubscribe_from_ticker(self.symbol)
+            self.conn.unsubscribe_from_order_book(self.symbol)
+            self.conn.unsubscribe_from_trades(self.symbol)
+            self.conn.unsubscribe_from_candles(pair = self.symbol, timeframe = '1m')
+
+            sleep(1)
+            # Shutting down the client:
+            self.conn.stop()
+
+        self.isconnected = False
+        logger.debug('Websocket Connector %s was disconnected...'%(self.name))
+
+    def getStatus(self ):
+        logger.debug('websocket status check...')
+        if not self.conn.conn.connected.is_set():
+            logger.debug('websocket status exited')
+            self.isconnected = False
+
+        return (self.isconnected)
+
+
+
+
+
+class WSMHttpConnector(HttpConnector):
+    # TODO WebSocket Mock HttpConnector  is backup for Websocket Connector
+    # 通过http rest API（ccxt）模拟 websocket connector的订阅数据的功能
+    # 把订阅数据功能改为主动轮询数据，返回的信息通过data_q返回到后台。
+    def run(self):
+        pass 
+        #if self.conntype == 'http' and self.ping_status:
+
+
+
 class BitMEXWebsocketConnector(Connector):
     """
       WebsocketConnector, 保持websocket长链接，提供稳定的实时链接。
-        bitmex，提供实时行情数据，以及账户数据，包括订单信息
-        # TODO ————bitfinex，提供实时行情数据，以及账户数据，包括订单信息
+        bitmex，提供实时行情数据，以及账户数据，包括订单信息。 订阅数据后，bitmex主动推送数据，修改__on_message，集中写入到data_q， 传入后台。       
     """
 
     def connect(self):

@@ -93,6 +93,8 @@ class DataBoard(Thread):
         Raises:
             None
         """
+        logger.info( "%s %s %s %s"%(exchange, table, symbol , data ) )
+        
         if exchange not in self.datastore :
             self.datastore[exchange] = dict()
 

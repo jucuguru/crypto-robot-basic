@@ -28,13 +28,13 @@ CONNECTORS = [
 #        "usage"  : "QUOTE",
 #        "baseurl": "https://www.bitmex.com/api/v1/",
 #    },
-    {   "name": "bmq_ws_ethusd",
-        "exchange" : "bitmex",
-        "symbol": "ETHUSD",
-        "conntype"  : "websocket",
-        "usage"  : "QUOTE",
-        "baseurl": "https://testnet.bitmex.com",
-    },
+#    {   "name": "bmq_ws_ethusd",
+#        "exchange" : "bitmex",
+#        "symbol": "ETHUSD",
+#        "conntype"  : "websocket",
+#        "usage"  : "QUOTE",
+#        "baseurl": "https://testnet.bitmex.com",
+#    },
     {   "name" : "bmo_http_ethusd", 
         "exchange" : "bitmex",
         "symbol": "ETHUSD",
@@ -42,12 +42,19 @@ CONNECTORS = [
         "usage"  : "ORDER",
         "baseurl": "https://testnet.bitmex.com",
     },
-    {   "name"  : "bmq_ws_xbtusd", 
-        "exchange" : "bitmex",
-        "symbol": "XBTUSD",
+#    {   "name"  : "bmq_ws_xbtusd", 
+#        "exchange" : "bitmex",
+#        "symbol": "XBTUSD",
+#        "conntype"  : "websocket",
+#        "usage"  : "QUOTE",
+#        "baseurl": "https://testnet.bitmex.com",
+#    },
+    {   "name"  : "bfq_ws_ethusd", 
+        "exchange" : "bitfinex",
+        "symbol": "BTCUSD",
         "conntype"  : "websocket",
         "usage"  : "QUOTE",
-        "baseurl": "https://testnet.bitmex.com",
+        "baseurl": "wss://api.bitfinex.com/ws/2",
     },
 ]
 
@@ -73,8 +80,8 @@ API_KEYS = {
         "secret" : "Nhc-jBwAzl49zpVnvcZJYo3BicYRYCurCzR-znUEiXnoKk9M",
     },
     "bitfinex": {
-        "key" : "9",
-        "secret" : "10",
+        "key" : "",
+        "secret" : "",
     },
     "karen" : { 
         "key" : "11",
@@ -85,13 +92,26 @@ API_KEYS = {
 
 
 ########################################################################################################################
-# subscription topics 
+# subscription topics  
+# TOOD :
+#   can only use for bitmex
+#   bitfinex use channel ( account, book, order, trade, candles )
 ########################################################################################################################
 SUBSCRIBE_TOPICS={
     # 需要指定SYMBOL的主题
-    'SYMBOL_SUBSCRIBE_TOPICS': ["execution", "instrument", "order", "orderBookL2_25", "position", "quote", "quoteBin1m", "trade", "tradeBin1m"] ,
+    'SYMBOL_SUBSCRIBE_TOPICS': [
+        # for bitmex
+        "execution", "instrument", "order", "orderBookL2_25", "position", "quote", "quoteBin1m", "trade", "tradeBin1m",
+        # for bitfinex
+         'ticker', 'order', 'book', 'candle', 'account', 
+    ] ,
     # 无需指定SYMBOL的主题
-    'GENERIC_SUBSCRIBE_TOPICS': ["margin", "wallet", "transact"],
+    'GENERIC_SUBSCRIBE_TOPICS': [
+        # for bitmex
+        "margin", "wallet", "transact", 
+        # for bitfinex
+        'account', 
+    ],
 }
 
 

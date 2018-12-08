@@ -65,6 +65,8 @@ class QuantRobot( Thread ):
         logger.info( 'Initialize Quant Robot...' )
         data_q = Queue()
         self.q = data_q 
+        self.cm = None
+        self.dm = None
 
         # 2.2 创建链接管理器线程，添加链接
         self.cm = ConnectorManager( self.q )
@@ -92,8 +94,8 @@ class QuantRobot( Thread ):
         # 3.调用策略线程。。。
         while self.live  :
             if self.dm.live and self.dm.ready:
-                #strategy( self.dm )
-
+                strategy( self.dm )
+                """
                 inst_xbt = self.dm.get_data( 'bitmex', 'instrument', 'XBTUSD' )
                 inst_eth = self.dm.get_data( 'bitmex', 'instrument', 'ETHUSD' )
 
@@ -117,6 +119,7 @@ class QuantRobot( Thread ):
                 print("order: %s"% order )
                 print("execution: %s"% execution )
                 print('\n')
+                """
 
             sleep(2)
 
@@ -142,29 +145,27 @@ class QuantRobot( Thread ):
         
 
 def strategy( db = None ):
-    exchange = 'bitmex'
-    table = ['quote', 'orderBookL2_25', 'instrument', 'trade']
-    symbol = ['ETHUSD', 'XBTUSD']
+    exchange = ['bitmex', 'bitfinex' ] 
+    table = [
+        # for bitmex
+        'quote', 'orderBookL2_25', 'instrument', 'trade', 
+        # for bitfinex
+        'ticker', 'order', 'book', 'candle', 'account'
+        ]
+    symbol = ['ETHUSD', 'XBTUSD', 'BTCUSD']
 
     if not ( db and db.live and db.ready ) :
         return 
 
-    for t in table:
-        for s in symbol:
-            data = db.get_data(exchange, t, s )
-            if data :
-                logger.info( ('recv data:[%s]'%data ) )
+    for e in exchange:
+        for t in table:
+            for s in symbol:
+                data = db.get_data(e, t, s )
+                if data :
+                    logger.info( 'recv data:', data )
+                else:
+                    logger.info( 'recv. no data ' )
 
-
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Quant Roboter')
-
-    parser.add_argument('--logger', default = '/tmp/quantrobot.log',
-                        help='logger file')
-
-    return parser.parse_args()
 
 
 

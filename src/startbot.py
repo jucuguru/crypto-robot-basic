@@ -27,7 +27,7 @@ if __name__ == '__main__':
     except (KeyboardInterrupt, SystemExit):
         print('MainThread runner shutdown.')
         robot.exit()
-        robot.join()
+        robot.join(timeout=2)
         sys.exit(1)
 
 
