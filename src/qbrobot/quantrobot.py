@@ -23,6 +23,7 @@ import threading
 from threading import Thread, Event, Timer
 from multiprocessing import Queue
 from collections import OrderedDict
+from os.path import getmtime
 
 """
 from future.utils import iteritems
@@ -38,14 +39,14 @@ from  qbrobot.util import log
 logger = log.setup_custom_logger()
 
 ## private import package
-from  qbrobot import settings
+from  qbrobot import qsettings
 from  qbrobot.connector import ConnectorManager
 from  qbrobot.databoard import DataBoard
 
 
 # Used for reloading the bot - saves modified times of key files
 import os
-watched_files_mtimes = [(f, os.path.getmtime(f)) for f in settings.WATCHED_FILES]
+watched_files_mtimes = [(f, os.path.getmtime(f)) for f in qsettings.WATCHED_FILES]
 
 
 class QuantRobot( Thread ):
@@ -121,7 +122,9 @@ class QuantRobot( Thread ):
                 print('\n')
                 """
 
-            sleep(2)
+                self.check_file_change()
+
+            sleep(1)
 
 
             """
@@ -132,27 +135,44 @@ class QuantRobot( Thread ):
                 sys.exit(1)
             """
 
-
     def exit(self):
-        self.live = False
         if self.cm :
             self.cm.exit()
 
         if self.dm:
             self.dm.exit()
 
+        #sleep(6)
+        self.live = False
         logger.info( 'Robot Shutdown completed...' )
-        
+    
+    def restart(self):
+        # TODO 重启之前是否需要保护当前场景
+        logger.info("Restarting the Quant Robot...")
+        self.exit()
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+    # 
+    # utility
+    #    
+    def check_file_change(self):
+        """Restart if any files we're watching have changed."""
+        for f, mtime in watched_files_mtimes:
+            if getmtime(f) > mtime:
+                self.restart()
+
+
 
 def strategy( db = None ):
-    exchange = ['bitmex', 'bitfinex' ] 
+    exchange = ['bitmex', 'bitfinex', 'bittrex' , 'kraken'] 
     table = [
         # for bitmex
-        'quote', 'orderBookL2_25', 'instrument', 'trade', 
+        'quote', 'orderBookL2', 'instrument', 'trade', 
         # for bitfinex
         'ticker', 'order', 'book', 'candle', 'account'
         ]
-    symbol = ['ETHUSD', 'XBTUSD', 'BTCUSD']
+    symbol = ['ETHUSD', 'XBTUSD', 'BTCUSD', 'USDT/USD']
 
     if not ( db and db.live and db.ready ) :
         return 
@@ -161,11 +181,10 @@ def strategy( db = None ):
         for t in table:
             for s in symbol:
                 data = db.get_data(e, t, s )
+                
                 if data :
-                    logger.info( 'recv data:', data )
-                else:
-                    logger.info( 'recv. no data ' )
-
+                    logger.info( 'recv data: %s %s %s %s '% (e,t,s, data  ) ) 
+                
 
 
 

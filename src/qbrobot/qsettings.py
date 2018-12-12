@@ -7,46 +7,103 @@ import logging
 # 这里的symbol是用于创建链接，获取行情等信息用的
 CONNECTORS = [
 # Once you're ready, uncomment this.   
+
     {   "name": "bmq_ws_ethusd",
+        "type": "main",
+        "backup": 'bmq_ccxt_ethusd', 
         "exchange" : "bitmex",
         "symbol": "ETHUSD",
         "conntype"  : "websocket",
         "usage"  : "QUOTE",
         "baseurl": "https://testnet.bitmex.com",
-        "auth":False,   # 是否需要认证， public API / private API
+        "auth":False,   # public API 不需要认证
         "subscribe":{
-            "SYMBOL_TOPICS":"",
-            "GENERIC_TOPICS":"",
+            "SYMBOL_TOPICS":['ticker','orderBookL2_25', 'instrument', ],
+            "GENERIC_TOPICS":[],
         },
     },
-    {   "name" : "bmo_http_ethusd", 
+
+    {   "name": "bmq_ccxt_ethusd",
+        'type': 'backup',
+        #'type': 'main',
+        "backup": '', 
         "exchange" : "bitmex",
         "symbol": "ETHUSD",
         "conntype"  : "http",
-        "usage"  : "ORDER",
-        "baseurl": "https://testnet.bitmex.com",
-    },
-    {   "name"  : "bmq_ws_xbtusd", 
-        "exchange" : "bitmex",
-        "symbol": "XBTUSD",
-        "conntype"  : "websocket",
         "usage"  : "QUOTE",
         "baseurl": "https://testnet.bitmex.com",
+        "auth":False,   # public API 不需要认证
+        "subscribe":{
+            "SYMBOL_TOPICS":['ticker','orderBookL2', 'instrument', ],
+            "GENERIC_TOPICS":[],
+        },
     },
     {   "name"  : "bfq_ws_btcusd2", 
+        "type"  : "main",
+        "backup": 'bfq_ccxt_btcusd2', 
         "exchange" : "bitfinex",
         "symbol": "BTCUSD",
         "conntype"  : "websocket",
         "usage"  : "QUOTE",
         "baseurl": "wss://api.bitfinex.com/ws/2",
+        "auth":False,   # public API 不需要认证
+        "subscribe":{
+            "SYMBOL_TOPICS":['ticker','orderBookL2_25', 'instrument', ],
+            "GENERIC_TOPICS":[],
+        },
     },
-    {   "name"  : "bfq_ws_btcusd1", 
+    {   "name"  : "bfq_ccxt_btcusd2", 
+        "type"  : "backup",
+        #"type"  : "main",
         "exchange" : "bitfinex",
         "symbol": "BTCUSD",
-        "conntype"  : "websocket",
+        "conntype"  : "http",
         "usage"  : "QUOTE",
-        "baseurl": "wss://api.bitfinex.com/ws/1",
+        "baseurl": "https://api.bitfinex.com/ws/2",
+        "auth":False,   # public API 不需要认证
+        "subscribe":{
+            "SYMBOL_TOPICS":['ticker','books', 'trades', ],
+            "GENERIC_TOPICS":[],
+        },
     },
+    {   "name"  : "bittrex_ccxt_usdt", 
+        "type"  : "main",
+        "exchange" : "bittrex",
+        "symbol": "USDT/USD",
+        "conntype"  : "http",
+        "usage"  : "QUOTE",
+        "baseurl": "",
+        "auth":False,   # public API 不需要认证
+        "subscribe":{
+            "SYMBOL_TOPICS":['ticker',],
+            "GENERIC_TOPICS":[],
+        },
+    },
+    {   "name"  : "kraken_ccxt_usdt", 
+        "type"  : "main",
+        "exchange" : "kraken",
+        "symbol": "USDT/USD",
+        "conntype"  : "http",
+        "usage"  : "QUOTE",
+        "baseurl": "",
+        "auth":False,   # public API 不需要认证
+        "subscribe":{
+            "SYMBOL_TOPICS":['ticker', ],
+            "GENERIC_TOPICS":[],
+        },
+    },
+#    {   "name"  : "bmq_ws_xbtusd", 
+#        "exchange" : "bitmex",
+#        "symbol": "XBTUSD",
+#        "conntype"  : "websocket",
+#        "usage"  : "QUOTE",
+#        "baseurl": "https://testnet.bitmex.com",
+#        "auth":T,   # public API 不需要认证
+#        "subscribe":{
+#            "SYMBOL_TOPICS":['ticker','orderBookL2_25', 'instrument', ],
+#            "GENERIC_TOPICS":[],
+#        },
+#    },
 ]
 
 # BASE_URL = "https://www.bitmex.com/api/v1/" 
@@ -92,7 +149,7 @@ SUBSCRIBE_TOPICS={
     # 需要指定SYMBOL的主题
     'SYMBOL_SUBSCRIBE_TOPICS': [
         # for bitmex
-        "execution", "instrument", "order", "orderBookL2_25", "position", "quote", "quoteBin1m", "trade", "tradeBin1m",
+        "execution", "instrument", "order", "orderBookL2", "position", "quote", "quoteBin1m", "trade", "tradeBin1m",
         # for bitfinex
          'ticker', 'order', 'book', 'candle', 'account', 
     ] ,
@@ -117,6 +174,23 @@ dingding_robot_id = '3658359d9f465209e38933ec031b3c01df85e71820d627df5744377f90c
 LOG_LEVEL = logging.INFO
 LOG_FILE= '/tmp/quantrobot.log'
 LOG_FORMATTER='%(asctime)s - %(levelname)s - %(threadName)s - %(filename)s - %(lineno)d - %(module)s - %(funcName)s - %(message)s'
+
+
+
+########################################################################################################################
+# INTERVAL for anything in QuoterServer
+########################################################################################################################
+# all INTERVAL 小于 5m， 300秒计数器归零。
+
+INTERVAL_POLLCHECK = 155
+INTERVAL_PING = 5
+INTERVAL_QUOTER = 1
+INTERVAL_INSTR = 60
+INTERVAL_TICKER = 3 
+INTERVAL_BOOK = 2 
+
+
+
 
 ########################################################################################################################
 # Order Size & Spread
@@ -201,7 +275,7 @@ DRY_BTC = 50
 ORDERID_PREFIX = "mm_bitmex_"
 
 # If any of these files (and this file) changes, reload the bot.
-WATCHED_FILES = [join('qbrobot', 'settings.py')]
+WATCHED_FILES = [join('qbrobot', 'qsettings.py')]
 
 
 ########################################################################################################################

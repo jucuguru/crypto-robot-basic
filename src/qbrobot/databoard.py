@@ -93,8 +93,8 @@ class DataBoard(Thread):
         Raises:
             None
         """
-        logger.info( "%s %s %s %s"%(exchange, table, symbol , data ) )
-        
+        logger.debug( "%s %s %s %s"%(exchange, table, symbol , data ) )
+
         if exchange not in self.datastore :
             self.datastore[exchange] = dict()
 
@@ -123,7 +123,7 @@ class DataBoard(Thread):
                 #logger.info( channel )
                 exchange, table, symbol = channel
 
-                if len( data ) :
+                if data or len( data ) :
                     self.__put_data( exchange, table, symbol, data )
                     self.ready = True
 

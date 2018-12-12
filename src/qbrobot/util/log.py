@@ -1,6 +1,6 @@
 import logging
 
-from  qbrobot import settings
+from  qbrobot import qsettings
 
 
 try :
@@ -59,10 +59,10 @@ handler = logging.handlers.RotatingFileHandler(str(logFile) + '.LOG', maxBytes =
 
 def setup_custom_logger():
 
-    #formatter = logging.Formatter(fmt='%(asctime)s - %(levelname)s - %(module)s - %(message)s')
-    formatter = logging.Formatter(fmt='%(asctime)s - %(levelname)s - %(module)s - %(funcName)s - %(filename)s - %(lineno)d - %(threadName)s - %(message)s')
+    
+    formatter = logging.Formatter(fmt=qsettings.LOG_FORMATTER)
 
-    file_name = settings.LOG_FILE
+    file_name = qsettings.LOG_FILE
     #file_name = None
     if file_name :
         handler = logging.FileHandler( file_name )
@@ -76,7 +76,7 @@ def setup_custom_logger():
     #print('setup_custom_logger', name)
     logger = logging.getLogger()
     logger.addHandler(handler)
-    logger.setLevel(settings.LOG_LEVEL)
+    logger.setLevel(qsettings.LOG_LEVEL)
 
     return logger
 

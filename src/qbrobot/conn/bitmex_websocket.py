@@ -283,11 +283,12 @@ class BitMEXWebsocket:
         '''Called on fatal websocket errors. We exit on these.'''
         if not self.exited:
             self.logger.error("%s Error : %s" % (self.cid, error) )
-            raise websocket.WebSocketException(error)
+            #raise websocket.WebSocketException(error)
+            self.isReady = False
 
     def __on_pong(self, ws, message ):
         logger.debug("%s ---on pong---- "% self.cid)
-        self.live = True
+        self.isReady = True
 
     def __on_open(self, ws):
         '''Called when the WS opens.'''
@@ -295,7 +296,7 @@ class BitMEXWebsocket:
 
     def __on_close(self, ws):
         '''Called on websocket close.'''
-        self.logger.info( ( '%s Websocket Closed')%(self.cid) )
+        self.logger.debug( ( '%s Websocket Closed')%(self.cid) )
         self.exited = True
         self.isReady = False
 

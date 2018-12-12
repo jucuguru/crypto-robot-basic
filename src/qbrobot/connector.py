@@ -23,7 +23,7 @@ import  ccxt
 
 ## private import package
 
-from qbrobot import settings
+from qbrobot import qsettings
 from qbrobot.util import log
 from qbrobot.conn.bitmex_websocket import BitMEXWebsocket
 
@@ -50,7 +50,7 @@ class Connector():
 
         self.subtopics = None
         if usage == 'QUOTE':
-            self.subtopics = settings.SUBSCRIBE_TOPICS
+            self.subtopics = qsettings.SUBSCRIBE_TOPICS
 
         self.conn = None
         self.isconnected = False
@@ -76,55 +76,280 @@ class Connector():
         logger.debug('Connector %s was disconnected...'%(self.name))
 
 
-
-
-# 
-# HttpConnector 负责管理一个HttpRest链接, 使用ccxt 建立链接
-#
-class HttpConnector(Connector):
-
+class QuoterConnector(Connector):
     """
-        ccxt的链接：定时ping，保证http链接是可用的
+        行情链接，需要保持长链接，所以有基本的ping和状态检查。
     """
+    @staticmethod
+    def extend(*args):
+        if args is not None:
+            result = None
+            if type(args[0]) is collections.OrderedDict:
+                result = collections.OrderedDict()
+            else:
+                result = {}
+            for arg in args:
+                result.update(arg)
+            return result
+        return {}
+
 
     def __ping(self):
-        while self.conntype == 'http'  and self.isconnected :
-            #logger.debug(type(self.conn))
+        pass 
+
+    def getstatus(self):
+        pass
+
+
+class TraderConnector(Connector):
+    """
+        交易链接，使用ccxt建立链接。
+    """
+    def __ping(self):
+        pass 
+
+    def getstatus(self):
+        pass
+
+
+
+class CCXTQuoterConnector(QuoterConnector):
+
+    """
+        ccxt的链接：无法找到定时ping的接口，暂时去掉。如果fetch数据出现 exception，则设置ping_status = False
+    """
+    def __ping(self):
+        #while self.conntype == 'http'  and self.isconnected :
+        #logger.debug(type(self.conn))
+        if self.ping_status == False :
             try : 
-                balance = self.conn.fetch_balance()
-                if not balance :
+                markets = self.conn.fetch_markets()
+                if not markets :
                     self.ping_status = False
                     logger.warning( ( '%s Connector ping error...'%self.name ) )
                 else:
                     self.ping_status = True
-                    logger.debug( '%s Connector  ping OK. balance is %s'%(self.name, balance['free']['BTC'] ) )
+                    logger.info( '%s Connector  ping OK. markets first is %s %s '%(self.name, markets[0]['id'], markets[0]['price']) )
             except Exception as e:
-                logger.debug(( '%s Connector ping error...'%self.name ) )
+                logger.info(( '%s Connector ping exception %s...'%( self.name, str(e) ) ) )
                 self.ping_status = False
 
-            sleep(5)
+    def __pass_to_robot(self, channel, data ):
+        logger.debug( "%s %s"%(channel, data ) )
+        return self.q.put(( channel, data ))
+
+
+    def __bitmex_fetch_instrument(self, requestparams = None ):
+        """
+            bitmex获取instrument合约信息. 获取其中的fundingRate, indicativeFundingRate
+            对应——ccxt.bitmex.fetch_markets(),但ccxt api返回了所有合约和指数的信息，不需要这么多。
+            param :
+                requestparams HTTP Rest API 请求参数, 必须包含symbol
+            return :
+                True/False
+        """
+        ret = False
+        try :
+            if not requestparams :
+                requestparams = {'symbol':self.symbol} 
+
+            data = self.conn.publicGetInstrument( requestparams )
+            if data:
+                channel = (self.exchange , 'instrument', self.symbol ) 
+                self.__pass_to_robot( channel , data )
+                ret = True
+
+        except Exception as e :
+            logger.error(( '%s ccxt publicGetInstrument exception %s...'%( self.name, str(e) ) ) )
+            self.ping_status = False
+
+        return ret 
+
+
+
+    def __bitmex_fetch_trade(self, requestparams = None ):
+        """
+            bitmex获取# ticker----lastprice ---? trader's price
+            ccxt.bitmex.fetch_ticker(), 其中需要先fetch_markets(), 然后再 publicGetTradeBucket(), 得到TradeBin1m , 时效性太差
+            用 publicGetTrade 返回的是当前时间最新的100笔交易数据
+                "timestamp": "2018-08-28T00:00:08.716Z",
+                "symbol": "ETHUSD",
+                "side": "Buy",
+                "size": 3000,
+                "price": 288.3,
+                "tickDirection": "ZeroPlusTick",
+                "trdMatchID": "5c177c7b-9e95-c9bb-cafb-195b37142fd7",
+                "grossValue": 86490000,
+                "homeNotional": 20.721094073767095,
+                "foreignNotional": 5973.891421467053
+            param :
+                requestparams HTTP Rest API 请求参数 必须包含symbol
+            return :
+                True/False
+        """
+        ret = False
+        try :
+            if not requestparams :
+                requestparams = {'symbol':self.symbol} 
+
+            data = self.conn.publicGetTrade(requestparams)
+            if data and len( data ) :
+                channel = (self.exchange , 'trade', self.symbol ) 
+                self.__pass_to_robot( channel , data )
+                ret = True 
+
+        except Exception as e :
+            logger.error(( '%s ccxt publicGetTrade exception %s...'%( self.name, str(e) ) ) )
+            self.ping_status = False
+
+        return ret 
+
+
+
+    def __bitmex_fetch_orderbook(self, requestparams = None ):
+        """
+            bitmex获取# orderbook----bid,ask ---
+            ccxt.bitmex.fetch_order_book(), 其中需要先fetch_markets(), 然后再 publicGetOrderBookL2(), 得到orderbook[25], 两次请求
+            用 publicGetOrderBookL2(symbol), 返回当前时间的25个报价的side和size。Sell==ask, buy==bid
+              {
+                "symbol": "ETHUSD",
+                "id": 29699998262,
+                "side": "Sell",
+                "size": 18803,
+                "price": 86.9
+              },
+              {
+                "symbol": "ETHUSD",
+                "id": 29699998263,
+                "side": "Buy",
+                "size": 195471,
+                "price": 86.85
+              },
+            param :
+                requestparams HTTP Rest API 请求参数 必须包含symbol
+            return :
+                True/False
+        """
+        ret = False
+        try :
+            if not requestparams :
+                requestparams = {'symbol':self.symbol} 
+
+            data = self.conn.publicGetOrderBookL2(requestparams )
+            if data and len(data):
+                channel = (self.exchange , 'orderBookL2', self.symbol ) 
+                self.__pass_to_robot( channel , data )
+                ret = True 
+
+        except Exception as e :
+            logger.error(( '%s ccxt publicGetOrderBookL2 exception %s...'%( self.name, str(e) ) ) )
+            self.ping_status = False
+
+        return ret 
+
+
+    def __bitfinex_fetch_ticker(self, requestparams = None ):
+        """
+            bitfinex 获取# ticker----lastprice ---? trader's price
+            ccxt.bitfinex.fetch_ticker(), 其中需要先fetch_markets(), 然后再 publicGetPubtickerSymbol(), 得到ticker , 需要两次请求
+            publicGetPubtickerSymbol 返回当前最新的价格等
+                mid         [price] (bid + ask) / 2
+                bid         [price] Innermost bid
+                ask         [price] Innermost ask
+                last_price  [price] The price at which the last order executed
+                low         [price] Lowest trade price of the last 24 hours
+                high        [price] Highest trade price of the last 24 hours
+                volume      [price] Trading volume of the last 24 hours
+                timestamp   [time]  The timestamp at which this information was valid
+            param :
+                requestparams HTTP Rest API 请求参数 必须包含symbol
+            return :
+                True/False
+        """
+        ret = False
+        try :
+            if not requestparams :
+                requestparams = {'symbol': ('t' + self.symbol ) } 
+
+            data = self.conn.publicGetTickerSymbol(requestparams)
+            if data and len(data):
+                channel = (self.exchange , 'ticker', self.symbol ) 
+                self.__pass_to_robot( channel , data )
+                ret = True 
+
+        except Exception as e :
+            logger.error(( '%s ccxt publicGetPubtickerSymbol exception %s...'%( self.name, str(e) ) ) )
+            self.ping_status = False
+
+        return ret 
+
+
+    def __bitfinex_fetch_orderbook(self, requestparams = None ):
+        """
+            bitfinex 获取# orderbook----bid,ask ---
+            ccxt.bitmex.fetch_order_book(), 其中需要先fetch_markets(), 然后再 publicGetBookSymbol(), 得到orderbook[25], 两次请求
+            用 publicGetBookSymbol (symbol), 返回当前时间的25个bids / asks 的pirce 和 size。Sell==ask, buy==bid
+              {
+                  "bids":[{
+                    "price":"574.61",
+                    "amount":"0.1439327",
+                    "timestamp":"1472506127.0"
+                  }],
+                  "asks":[{
+                    "price":"574.62",
+                    "amount":"19.1334",
+                    "timestamp":"1472506126.0"
+                  }]
+                }
+            param :
+                requestparams HTTP Rest API 请求参数 必须包含symbol
+            return :
+                True/False
+        """
+        ret = False
+        try :
+            if not requestparams :
+                requestparams = {'symbol':( 't' + self.symbol ), 'precision': 'R0' }
+            else :
+                requestparams['precision'] = 'R0'
+
+
+            data = self.conn.publicGetBookSymbolPrecision(requestparams)
+            if data and len(data):
+                channel = (self.exchange , 'orderbook', self.symbol ) 
+                self.__pass_to_robot( channel , data )
+                ret = True 
+
+        except Exception as e :
+            logger.error(( '%s ccxt publicGetBookSymbol exception %s...'%( self.name, str(e) ) ) )
+            self.ping_status = False
+
+        return ret 
+
 
 
     def connect(self):
         """
-            识别exchange和conntype，选择class 建立链接. 
+            识别exchange和conntype，选择exchange api class 建立链接. 
             param :
                 None
             return :
                 True/False
         """
+        if not self.conntype == 'http':
+            logger.error( ('%s cannot use in ccxt qutoer connector.'%(self.conntype)) )
+            return False
+
         logger.debug('Starting to create the connector %s %s %s %s %s %s...'%( 
                     self.name, self.exchange, self.symbol, self.conntype, self.usage, self.baseurl))
 
-        if not self.conntype == 'http':
-            logger.error( ('%s cannot use in http connector.'%(self.conntype)) )
-            return False
 
         if self.exchange == 'bitmex':
                 bitmex = ccxt.bitmex()
-                bitmex.urls['api'] = self.baseurl             
-                bitmex.apiKey = self.api_key
-                bitmex.secret = self.api_secret
+                bitmex.urls['api'] = self.baseurl
+                if self.api_key and len( self.api_key) and self.api_secret and len(self.api_secret):
+                    bitmex.apiKey = self.api_key
+                    bitmex.secret = self.api_secret
                 self.conn = bitmex
                 # TODO 这里只是 把 链接对象准备好，但是还没有真正的使用，需要测试一下。ping/pong
 
@@ -132,15 +357,18 @@ class HttpConnector(Connector):
             #BITFINEX交易所1，用来交易
             if self.usage == 'ORDER':
                 bitfinex1 = ccxt.bitfinex()
-                bitfinex1.apiKey = ''
-                bitfinex1.secret = ''
+                if self.api_key and len( self.api_key) and self.api_secret and len(self.api_secret):
+                    bitfinex1.apiKey = self.api_key
+                    bitfinex1.secret = self.api_secret
                 self.conn = bitfinex1
 
             elif self.usage == 'QUOTE':
                 #BITFINEX交易所2，用来获取行情和账户信息
                 bitfinex2 = ccxt.bitfinex2()
-                bitfinex2.apiKey = ''
-                bitfinex2.secret = ''
+                if self.api_key and len( self.api_key) and self.api_secret and len(self.api_secret):
+                    bitfinex2.apiKey = self.api_key
+                    bitfinex2.secret = self.api_secret
+                self.conn = bitfinex2
 
         elif self.exchange == 'kraken':
             #KRAKEN和BITTREX交易所，用来获取USDT对USD价格
@@ -151,21 +379,27 @@ class HttpConnector(Connector):
             self.conn = ccxt.bittrex()
 
         else:
-            logger.warning('Do not support exchange %s, please check the settings.py .'% self.exchange)
+            logger.warning('Do not support exchange %s, please check the qsettings.py .'% self.exchange)
 
+        # 建立链接正常，开始激活查询动作，并且开始轮训
         if self.conn :
             logger.debug('Created the connector %s %s %s %s %s %s...'%( 
                 self.name, self.exchange, self.symbol, self.conntype, self.usage, self.baseurl))
             self.isconnected = True
             self.ping_status = True
-            self.run()
+
+            # 启动运行程序
+            t = Thread( target = self.run )
+            t.daemon = True
+            t.start()
             return True
 
 
     def getStatus(self ):
         logger.debug('http status check...')
-
         return (self.isconnected and self.ping_status)
+
+
 
     def run(self):
         """
@@ -180,14 +414,71 @@ class HttpConnector(Connector):
                 BitMEX 交易引擎将在请求队列达到一定长度时开始卸载。 发生这种情况时，您将收到 503 状态码与消息 “系统当前超负荷， 请稍后再试。” 
                     请求不会到达交易引擎，您应该在至少 500 毫秒后重试。
         """
-        if self.conntype == 'http' and self.ping_status :
+        logger.info('%s ccxt threading is started and running...'%(self.name)) 
+        time_count = 0
+        while self.conntype == 'http' and self.isconnected :
 
-            logger.info('%s http threading is started and running...'%(self.name))     
+            try: 
+                # TODO 调用接口开始查询数据query
+                if self.exchange == 'bitmex' and self.ping_status:
 
-            # 如果是ORDER，需要循环心跳，keeplive，保持心跳和循环检查。。。
-            t = Thread(target=self.__ping)
-            t.daemon = True
-            t.start()
+                    symbol_dict = {'symbol':self.symbol} 
+                    if not time_count % qsettings.INTERVAL_INSTR :
+                        # 每60秒取一次instrument----fundingRate, indicativeFundingRate
+                        self.__bitmex_fetch_instrument( requestparams = symbol_dict )
+
+                    if not time_count % qsettings.INTERVAL_TICKER :
+                        # 每三秒取一次ticker, ticker----lastprice ---? trader's price
+                        self.__bitmex_fetch_trade( requestparams = symbol_dict )
+                    
+                    if not time_count % qsettings.INTERVAL_BOOK : 
+                        # 每两秒取一次OrderBook, orderbook----bid,ask ---
+                        self.__bitmex_fetch_orderbook( requestparams = symbol_dict )
+
+
+                elif self.exchange == 'bitfinex' and self.ping_status:
+                    # bitfinex 频率限制 每分钟60次，而且是按照IP地址和用户的总和，
+                    symbol_dict = {'symbol':( 't' + self.symbol )} 
+
+                    # 每三秒取一次ticker, ticker----lastprice 
+                    if not time_count % qsettings.INTERVAL_TICKER :
+                        self.__bitfinex_fetch_ticker(symbol_dict)
+
+                    # 每两秒取一次OrderBook, orderbook----bid,ask ---
+                    if not time_count % qsettings.INTERVAL_BOOK : 
+                        self.__bitfinex_fetch_orderbook(symbol_dict)
+
+                elif self.exchange == 'bittrex' and self.ping_status:
+                    # 每三秒取一次ticker, ticker----lastprice 
+                    if not time_count % qsettings.INTERVAL_TICKER :
+                        data = self.conn.fetch_ticker('USDT/USD')
+                        if data :
+                            channel = (self.exchange , 'ticker', 'USDT/USD' ) 
+                            self.__pass_to_robot( channel , data )
+
+                elif self.exchange == 'kraken' and self.ping_status:
+                    # 每三秒取一次ticker, ticker----lastprice 
+                    if not time_count % qsettings.INTERVAL_TICKER :
+                        data = self.conn.fetch_ticker('USDT/USD')
+                        if data :
+                            channel = (self.exchange , 'ticker', 'USDT/USD' ) 
+                            self.__pass_to_robot( channel , data )
+
+                self.ping_status = True
+
+            except Exception as e:
+                logger.error(( '%s ccxt fetch data exception %s...'%( self.name, str(e) ) ) )
+                self.ping_status = False
+
+            # __ping
+            if not time_count % qsettings.INTERVAL_PING :
+                self.__ping()
+
+            sleep(qsettings.INTERVAL_QUOTER)
+            if time_count == 300 :
+                time_count = 0
+            else:
+                time_count += 1 
 
         return True
 
@@ -231,7 +522,7 @@ class BitfinexWebsocketConnector(Connector):
             self.conn.start()
 
         else:
-            logger.warning('Do not support exchange %s, please check the settings.py .'% self.exchange)
+            logger.warning('Do not support exchange %s, please check the qsettings.py .'% self.exchange)
             return False 
 
         # 建立链接，开始等待联通，并订阅信息
@@ -331,7 +622,7 @@ class BitfinexWebsocketConnector(Connector):
         conn_timeout = 5
         while not self.isconnected and conn_timeout : 
             ret = self.connect()
-            sleep(1)
+            sleep(2)
             conn_timeout -= 1 
 
         if not ret:
@@ -341,19 +632,23 @@ class BitfinexWebsocketConnector(Connector):
         return ret 
 
     def disconnect( self ):
-        if self.conntype == 'websocket':
-            # Unsubscribing from channels:
-            self.conn.unsubscribe_from_ticker(self.symbol)
-            self.conn.unsubscribe_from_order_book(self.symbol)
-            self.conn.unsubscribe_from_trades(self.symbol)
-            self.conn.unsubscribe_from_candles(pair = self.symbol, timeframe = '1m')
 
-            sleep(1)
+        if self.conntype == 'websocket':
+            '''
+            # Unsubscribing from channels:
+            try : 
+                self.conn.unsubscribe_from_ticker(self.symbol)
+                self.conn.unsubscribe_from_order_book(self.symbol)
+                self.conn.unsubscribe_from_trades(self.symbol)
+                self.conn.unsubscribe_from_candles(pair = self.symbol, timeframe = '1m')
+            except:
+                logger.exception('unsubscribe wrong')
+            '''
             # Shutting down the client:
             self.conn.stop()
 
         self.isconnected = False
-        logger.debug('Websocket Connector %s was disconnected...'%(self.name))
+        logger.info('Websocket Connector %s was disconnected...'%(self.name))
 
     def getStatus(self ):
         logger.debug('websocket status check...')
@@ -366,7 +661,7 @@ class BitfinexWebsocketConnector(Connector):
 
 
 
-
+"""
 class WSMHttpConnector(HttpConnector):
     # TODO WebSocket Mock HttpConnector  is backup for Websocket Connector
     # 通过http rest API（ccxt）模拟 websocket connector的订阅数据的功能
@@ -374,7 +669,7 @@ class WSMHttpConnector(HttpConnector):
     def run(self):
         pass 
         #if self.conntype == 'http' and self.ping_status:
-
+"""
 
 
 class BitMEXWebsocketConnector(Connector):
@@ -407,7 +702,7 @@ class BitMEXWebsocketConnector(Connector):
                                          data_q = self.q ,
                                          subtopics = self.subtopics )
         else:
-            logger.warning('Do not support exchange %s, please check the settings.py .'% self.exchange)
+            logger.warning('Do not support exchange %s, please check the qsettings.py .'% self.exchange)
 
         if self.conn and not self.conn.exited:
             logger.debug('Created the connector OK %s %s %s %s %s %s...'%( 
@@ -424,7 +719,10 @@ class BitMEXWebsocketConnector(Connector):
             logger.debug('websocket status exited')
             self.isconnected = False
 
-        return (self.isconnected)
+        if not self.conn.isReady :
+            self.isconnected = False
+
+        return (self.isconnected )
 
 
     def run(self):
@@ -476,7 +774,7 @@ class BitMEXWebsocketConnector(Connector):
             self.conn.exit()
 
         self.isconnected = False
-        logger.debug('Websocket Connector %s was disconnected...'%(self.name))
+        logger.info('Websocket Connector %s was disconnected...'%(self.name))
 
 
 
@@ -507,7 +805,7 @@ class ConnectorManager(Thread):
         self.connectors = dict()
 
         if self.addAllConnector(data_q):
-            if len(self.connectors) == len( settings.CONNECTORS ):
+            if len(self.connectors) == len( qsettings.CONNECTORS ):
                 self.status = 'healthy'
             else:
                 self.status = 'warning'
@@ -532,7 +830,7 @@ class ConnectorManager(Thread):
                     self.status = 'warning'
                     logger.warning('Connector %s have disconnected, please check... '%(name))
             else:
-                logger.debug('Connector %s is normal...'%(name))
+                logger.info('Connector %s is normal...'%(name))
 
 
 
@@ -557,45 +855,39 @@ class ConnectorManager(Thread):
         Raises:
             None
         """
-        status = True
-        for item in settings.CONNECTORS:
-            api_key = settings.API_KEYS[ item['exchange'] ]
+        status = []
+        for item in qsettings.CONNECTORS:
+            if item['type'] == 'backup':
+                continue
+
+            if item['auth']:
+                api_key = qsettings.API_KEYS[ item['exchange'] ]
+            else:
+                api_key = None
+
             if self.addConnector( item, api_key, data_q ):
                 logger.debug( 'add the %s connector successed.'% item['name'] )
+                status.append(True)
             else:
                 logger.warning( 'add the %s connector wrong. please checking.'% item['name'] )
-                """
-                if item['exchange'] in [ 'bitmex', 'bitfinex' ]:
-                    # 如果是主要交易所，无法建立链接，尝试备份链接(默认websocket无法链接，换成http)，只能退出。
-                    if item['conntype'] == 'websocket':
-                        item['conntype'] = 'http'
-                        if self.addConnector( item, api_key, data_q ):
-                            logger.warning( 'use backup connector %s, %s.'%( item['name'] , item['conntype']) )
-                        else :
-                            status = False
-                            break
-                    elif item['usage'] == 'ORDER':
-                        status = False
-                        break
-                    else :
-                        item['conntype'] = 'websocket'
-                        if self.addConnector( item, api_key, data_q ):
-                            logger.warning( 'use backup connector %s, %s.'%( item['name'] , item['conntype']) )
-                        else :
-                            status = False
-                            break
-                """
-                status = False
-                break
                 
+                if item['backup'] and len(item['backup']) :
+                    # 如果定义了备份链接，无法建立主链接，尝试备份链接(默认websocket无法链接，换成http)，只能退出。
+                    item = qsettings.CONNECTORS[ item['backup'] ]
+                    if self.addConnector( item, api_key, data_q ):
+                        logger.info( 'use backup connector %s, %s.'%( item['name'] , item['conntype']) )
+                        status.append(True)
+                        continue
 
-        return status
+                status.append( False )
+                
+        return all(status)
 
     def getConnectorByName(self, name ):
         """
             getConnectorByName 根据链接的名字获取链接， 返回链接前先检查链接是否可用，否则返回None
         Parameters:
-            name -  链接的名称，在settings.py中定义
+            name -  链接的名称，在qsettings.py中定义
         Returns:
             conn - connector
         Raises:
@@ -620,7 +912,9 @@ class ConnectorManager(Thread):
         Raises:
             None
         """
-        _conn = self.__makeConnector( connParams['name'], 
+        if api_key :
+            _conn = self.__makeConnector( data_q , 
+                                 connParams['name'], 
                                  connParams['exchange'], 
                                  connParams['symbol'], 
                                  connParams['conntype'], 
@@ -628,7 +922,16 @@ class ConnectorManager(Thread):
                                  connParams['baseurl'],
                                  api_key['key'], 
                                  api_key['secret'], 
-                                 data_q )
+                                 )
+        else:
+            _conn = self.__makeConnector( data_q ,
+                                 connParams['name'], 
+                                 connParams['exchange'], 
+                                 connParams['symbol'], 
+                                 connParams['conntype'], 
+                                 connParams['usage'], 
+                                 connParams['baseurl'],
+                                 )
         if _conn : 
             self.connectors[ connParams['name'] ] = _conn 
             return True 
@@ -636,7 +939,7 @@ class ConnectorManager(Thread):
             return False
 
 
-    def __makeConnector(self, name, exchange, symbol, conntype, usage, baseurl, api_key, api_secret , data_q ):
+    def __makeConnector(self, data_q , name, exchange, symbol, conntype, usage, baseurl, api_key=None, api_secret=None, ):
         """
             __makeConnector 创建链接， 
         Parameters:
@@ -653,7 +956,7 @@ class ConnectorManager(Thread):
             None
         """
         if conntype == 'http':
-            conn = HttpConnector( name, exchange, symbol, conntype, usage, baseurl, api_key, api_secret , data_q )
+            conn = CCXTQuoterConnector( name, exchange, symbol, conntype, usage, baseurl, api_key, api_secret , data_q )
         elif conntype == 'websocket':
             if exchange == 'bitmex':
                 conn = BitMEXWebsocketConnector( name, exchange, symbol, conntype, usage, baseurl, api_key, api_secret , data_q )
@@ -678,7 +981,7 @@ class ConnectorManager(Thread):
         """
         while not self.status == 'failed' and self.live :
             self.pollcheck()
-            sleep(15)
+            sleep(qsettings.INTERVAL_POLLCHECK)
 
 
 
