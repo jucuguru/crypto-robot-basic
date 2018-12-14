@@ -42,7 +42,7 @@ logger = log.setup_custom_logger()
 from  qbrobot import qsettings
 from  qbrobot.connector import ConnectorManager
 from  qbrobot.databoard import DataBoard
-
+from qbrobot.strategies.arbitragestrategy import BMBFStrategy
 
 # Used for reloading the bot - saves modified times of key files
 import os
@@ -93,9 +93,13 @@ class QuantRobot( Thread ):
         # 1.检查各个链接的心跳，如果有问题，先重建链接，创建一个线程创建另外的链接
         # 2.调用DM，处理数据。。。
         # 3.调用策略线程。。。
+        logger.info("Quant Robot start to run...")
+        if self.live:
+            strategy = BMBFStrategy(databoard = self.dm, connectormanager = self.cm )
+            strategy.start()
+
         while self.live  :
-            if self.dm.live and self.dm.ready:
-                strategy( self.dm )
+            if strategy.getStatus() :
                 """
                 inst_xbt = self.dm.get_data( 'bitmex', 'instrument', 'XBTUSD' )
                 inst_eth = self.dm.get_data( 'bitmex', 'instrument', 'ETHUSD' )
@@ -135,6 +139,9 @@ class QuantRobot( Thread ):
                 sys.exit(1)
             """
 
+        strategy.stop()
+
+
     def exit(self):
         if self.cm :
             self.cm.exit()
@@ -161,30 +168,6 @@ class QuantRobot( Thread ):
         for f, mtime in watched_files_mtimes:
             if getmtime(f) > mtime:
                 self.restart()
-
-
-
-def strategy( db = None ):
-    exchange = ['bitmex', 'bitfinex', 'bittrex' , 'kraken'] 
-    table = [
-        # for bitmex
-        'quote', 'orderBookL2', 'instrument', 'trade', 
-        # for bitfinex
-        'ticker', 'order', 'book', 'candle', 'account'
-        ]
-    symbol = ['ETHUSD', 'XBTUSD', 'BTCUSD', 'USDT/USD']
-
-    if not ( db and db.live and db.ready ) :
-        return 
-
-    for e in exchange:
-        for t in table:
-            for s in symbol:
-                data = db.get_data(e, t, s )
-                
-                if data :
-                    logger.info( 'recv data: %s %s %s %s '% (e,t,s, data  ) ) 
-                
 
 
 

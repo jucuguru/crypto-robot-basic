@@ -12,12 +12,12 @@ import json
 import atexit
 import signal
 
-from time import sleep
+import time
+from datetime import datetime
 from threading import Thread, Event, Timer
 from multiprocessing import Queue
 
 # exchange API and ccxt
-from btfxwss import BtfxWss
 import  ccxt 
 
 
@@ -26,6 +26,7 @@ import  ccxt
 from qbrobot import qsettings
 from qbrobot.util import log
 from qbrobot.conn.bitmex_websocket import BitMEXWebsocket
+from qbrobot.conn.btfxwss import BtfxWss
 
 #
 # Helpers
@@ -233,9 +234,10 @@ class CCXTQuoterConnector(QuoterConnector):
         ret = False
         try :
             if not requestparams :
-                requestparams = {'symbol':self.symbol} 
+                requestparams = {'symbol':self.symbol, 'depth':10 } 
 
-            data = self.conn.publicGetOrderBookL2(requestparams )
+            data = self.conn.publicGetOrderBookL2( requestparams )
+            logger.info( "orderBookL2 len [%d]"% (len(data) ) )
             if data and len(data):
                 channel = (self.exchange , 'orderBookL2', self.symbol ) 
                 self.__pass_to_robot( channel , data )
@@ -253,14 +255,16 @@ class CCXTQuoterConnector(QuoterConnector):
             bitfinex 获取# ticker----lastprice ---? trader's price
             ccxt.bitfinex.fetch_ticker(), 其中需要先fetch_markets(), 然后再 publicGetPubtickerSymbol(), 得到ticker , 需要两次请求
             publicGetPubtickerSymbol 返回当前最新的价格等
-                mid         [price] (bid + ask) / 2
-                bid         [price] Innermost bid
-                ask         [price] Innermost ask
-                last_price  [price] The price at which the last order executed
-                low         [price] Lowest trade price of the last 24 hours
-                high        [price] Highest trade price of the last 24 hours
-                volume      [price] Trading volume of the last 24 hours
-                timestamp   [time]  The timestamp at which this information was valid
+                BID                 float   Price of last highest bid
+                BID_SIZE            float   Sum of the 25 highest bid sizes
+                ASK                 float   Price of last lowest ask
+                ASK_SIZE            float   Sum of the 25 lowest ask sizes
+                DAILY_CHANGE        float   Amount that the last price has changed since yesterday
+                DAILY_CHANGE_PERC   float   Amount that the price has changed expressed in percentage terms
+                LAST_PRICE          float   Price of the last trade
+                VOLUME              float   Daily volume
+                HIGH                float   Daily high
+                LOW                 float   Daily low
             param :
                 requestparams HTTP Rest API 请求参数 必须包含symbol
             return :
@@ -274,7 +278,7 @@ class CCXTQuoterConnector(QuoterConnector):
             data = self.conn.publicGetTickerSymbol(requestparams)
             if data and len(data):
                 channel = (self.exchange , 'ticker', self.symbol ) 
-                self.__pass_to_robot( channel , data )
+                self.__pass_to_robot( channel , ( [data], time.time() )  )
                 ret = True 
 
         except Exception as e :
@@ -287,20 +291,12 @@ class CCXTQuoterConnector(QuoterConnector):
     def __bitfinex_fetch_orderbook(self, requestparams = None ):
         """
             bitfinex 获取# orderbook----bid,ask ---
-            ccxt.bitmex.fetch_order_book(), 其中需要先fetch_markets(), 然后再 publicGetBookSymbol(), 得到orderbook[25], 两次请求
-            用 publicGetBookSymbol (symbol), 返回当前时间的25个bids / asks 的pirce 和 size。Sell==ask, buy==bid
-              {
-                  "bids":[{
-                    "price":"574.61",
-                    "amount":"0.1439327",
-                    "timestamp":"1472506127.0"
-                  }],
-                  "asks":[{
-                    "price":"574.62",
-                    "amount":"19.1334",
-                    "timestamp":"1472506126.0"
-                  }]
-                }
+            ccxt.bitfinex.fetch_order_book(), 其中需要先fetch_markets(), 然后再 publicGetBookSymbol(), 得到orderbook[25], 两次请求
+            用 publicGetBookSymbolPrecision(symbol, Precision=P0), 返回当前时间的25个bids / asks 的pirce 和 size。
+                PRICE   float   Price level
+                COUNT   int Number of orders at that price level
+                ±AMOUNT float   Total amount available at that price level.
+                For Trading: if AMOUNT > 0 then bid else ask.
             param :
                 requestparams HTTP Rest API 请求参数 必须包含symbol
             return :
@@ -311,13 +307,13 @@ class CCXTQuoterConnector(QuoterConnector):
             if not requestparams :
                 requestparams = {'symbol':( 't' + self.symbol ), 'precision': 'R0' }
             else :
-                requestparams['precision'] = 'R0'
+                requestparams['precision'] = 'P0'
 
 
             data = self.conn.publicGetBookSymbolPrecision(requestparams)
             if data and len(data):
-                channel = (self.exchange , 'orderbook', self.symbol ) 
-                self.__pass_to_robot( channel , data )
+                channel = (self.exchange , 'book', self.symbol ) 
+                self.__pass_to_robot( channel , ( data, time.time() ) )
                 ret = True 
 
         except Exception as e :
@@ -474,7 +470,7 @@ class CCXTQuoterConnector(QuoterConnector):
             if not time_count % qsettings.INTERVAL_PING :
                 self.__ping()
 
-            sleep(qsettings.INTERVAL_QUOTER)
+            time.sleep(qsettings.INTERVAL_QUOTER)
             if time_count == 300 :
                 time_count = 0
             else:
@@ -485,7 +481,7 @@ class CCXTQuoterConnector(QuoterConnector):
 
     def disconnect( self ):
         self.isconnected = False
-        logger.debug('Http Connector %s was disconnected...'%(self.name))
+        logger.info('Http Connector %s was disconnected...'%(self.name))
 
 
 
@@ -517,7 +513,8 @@ class BitfinexWebsocketConnector(Connector):
                 self.conn = BtfxWss( key = self.api_key, secret = self.api_secret )
             else:
                 self.auth = False
-                self.conn = BtfxWss( )
+                self.conn = BtfxWss( ) 
+                #self.conn = BtfxWss( log_level = logging.DEBUG )
 
             self.conn.start()
 
@@ -530,18 +527,19 @@ class BitfinexWebsocketConnector(Connector):
 
             # 等待链接到位
             while not self.conn.conn.connected.is_set():
-                sleep(1)
+                time.sleep(1)
 
             logger.debug('Created the connector OK %s %s %s %s %s %s...'%( 
                 self.name, self.exchange, self.symbol, self.conntype, self.usage, self.baseurl))
 
             # Subscribe to some channels
-            self.conn.subscribe_to_ticker(self.symbol)
             self.conn.subscribe_to_order_book(self.symbol)
             self.conn.subscribe_to_trades(self.symbol)
-            self.conn.subscribe_to_candles(pair = self.symbol, timeframe = '1m')
+            self.conn.subscribe_to_ticker(self.symbol)
+            # 如果没有登录 auth， 同时只能订阅三个channel
+            #self.conn.subscribe_to_candles(pair = self.symbol, timeframe = '1m')
 
-            sleep(2)
+            time.sleep(1)
 
             self.ticker_q = self.conn.tickers(self.symbol)
             self.books_q = self.conn.books(self.symbol)
@@ -574,6 +572,7 @@ class BitfinexWebsocketConnector(Connector):
             
             if not self.ticker_q.empty():
                 data = self.ticker_q.get(timeout=0.1)
+                #logger.info("############get ticker :[%s]"%(str(data))  )
                 channel = (self.exchange , 'ticker', self.symbol ) 
             
             if not self.books_q.empty():
@@ -591,7 +590,7 @@ class BitfinexWebsocketConnector(Connector):
             if channel and data:
                 self.__pass_to_robot( channel , data )
 
-            sleep(0.1)
+            time.sleep(0.1)
 
 
 
@@ -622,7 +621,7 @@ class BitfinexWebsocketConnector(Connector):
         conn_timeout = 5
         while not self.isconnected and conn_timeout : 
             ret = self.connect()
-            sleep(2)
+            time.sleep(2)
             conn_timeout -= 1 
 
         if not ret:
@@ -760,7 +759,7 @@ class BitMEXWebsocketConnector(Connector):
         conn_timeout = 5
         while not self.isconnected and conn_timeout : 
             ret = self.connect()
-            sleep(1)
+            time.sleep(1)
             conn_timeout -= 1 
 
         if not ret:
@@ -796,8 +795,8 @@ class ConnectorManager(Thread):
 
         Thread.__init__(self)
 
-        atexit.register(self.exit)
-        signal.signal(signal.SIGTERM, self.exit)
+        #atexit.register(self.exit)
+        #signal.signal(signal.SIGTERM, self.exit)
 
         self.q = data_q 
 
@@ -873,7 +872,7 @@ class ConnectorManager(Thread):
                 
                 if item['backup'] and len(item['backup']) :
                     # 如果定义了备份链接，无法建立主链接，尝试备份链接(默认websocket无法链接，换成http)，只能退出。
-                    item = qsettings.CONNECTORS[ item['backup'] ]
+                    item =  self.__findConnectorByName( qsettings.CONNECTORS , item['backup'] )
                     if self.addConnector( item, api_key, data_q ):
                         logger.info( 'use backup connector %s, %s.'%( item['name'] , item['conntype']) )
                         status.append(True)
@@ -882,6 +881,17 @@ class ConnectorManager(Thread):
                 status.append( False )
                 
         return all(status)
+
+
+    def __findConnectorByName( self, connectors , name ):
+        conn = None
+        if name and connectors:
+            for c in connectors :
+                if c['name'] == name :
+                    conn = c
+                    break
+        return conn 
+
 
     def getConnectorByName(self, name ):
         """
@@ -981,7 +991,7 @@ class ConnectorManager(Thread):
         """
         while not self.status == 'failed' and self.live :
             self.pollcheck()
-            sleep(qsettings.INTERVAL_POLLCHECK)
+            time.sleep(qsettings.INTERVAL_POLLCHECK)
 
 
 

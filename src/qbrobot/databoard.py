@@ -19,7 +19,7 @@ from multiprocessing import Queue
 
 ## private import package
 
-from qbrobot import settings
+from qbrobot import qsettings
 from qbrobot.util import log
 
 #
@@ -30,7 +30,7 @@ logger = logging.getLogger()
 # 
 # DataBoard 负责从data_q读取数据，并维护数据面板
 #
-class DataBoard(Thread):
+class DataBoard():
 
     def __init__( self , data_q ):
         """
@@ -42,9 +42,6 @@ class DataBoard(Thread):
         Raises:
             None
         """
-
-        Thread.__init__(self)
-
         atexit.register(self.exit)
         signal.signal(signal.SIGTERM, self.exit)
 
@@ -58,7 +55,7 @@ class DataBoard(Thread):
 
         # 定义状态
         self.live = True
-        self.ready = False
+        self.ready = True
 
 
 
@@ -74,13 +71,28 @@ class DataBoard(Thread):
         """
         if exchange in self.datastore :
             if table in self.datastore[exchange]:
-                if table in settings.SUBSCRIBE_TOPICS['GENERIC_SUBSCRIBE_TOPICS'] :
+                if table in qsettings.SUBSCRIBE_TOPICS['GENERIC_SUBSCRIBE_TOPICS'] :
                     return self.datastore[exchange][table]
                 else :
                     if symbol in self.datastore[exchange][table]:
                         return self.datastore[exchange][table][symbol]
 
         return None
+
+    def get_exchanges(self):
+        return datastore.keys()
+
+    def get_tables(self, exchange):
+        if exchange in self.datastore:
+            return self.datastore[exchange].keys()
+        else:
+            return []
+
+    def get_symbols(self, exchange, table ):
+        if ( exchange in self.datastore ) and ( table in self.datastore[exchange] ) :
+            return self.datastore[exchange][table].keys()
+        else :
+            return []
 
 
     def __put_data( self, exchange, table, symbol , data ):
@@ -105,12 +117,16 @@ class DataBoard(Thread):
         if symbol not in self.datastore[exchange][table]:
             self.datastore[exchange][table][symbol] = None
         """
-        if table in settings.SUBSCRIBE_TOPICS['GENERIC_SUBSCRIBE_TOPICS'] :
+        if table in qsettings.SUBSCRIBE_TOPICS['GENERIC_SUBSCRIBE_TOPICS'] :
             self.datastore[exchange][table] = data
         else :
             self.datastore[exchange][table][symbol] = data
 
-
+    def start(self):
+        t = Thread( target = self.run )
+        t.daemon = True
+        t.start()
+        return True
 
     def run( self ):
         # TOTO 
