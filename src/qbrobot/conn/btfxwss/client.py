@@ -3,13 +3,13 @@ import logging
 import time
 
 # Import Homebrew
-from btfxwss.connection import WebSocketConnection
-from btfxwss.queue_processor import QueueProcessor
+from qbrobot.conn.btfxwss.connection import WebSocketConnection
+from qbrobot.conn.btfxwss.queue_processor import QueueProcessor
 
 
 # Init Logging Facilities
-log = logging.getLogger(__name__)
-
+#log = logging.getLogger(__name__)
+log = logging.getLogger()
 
 def is_connected(func):
     def wrapped(self, *args, **kwargs):
@@ -50,6 +50,11 @@ class BtfxWss:
     @property
     def channel_configs(self):
         return self.conn.channel_configs
+
+    @property
+    def channel_directory(self):
+        return self.queue_processor.channel_directory
+
 
     @property
     def account(self):
@@ -144,19 +149,24 @@ class BtfxWss:
     ##########################################
 
     def _subscribe(self, channel_name, identifier, **kwargs):
-        q = {"event": "subscribe", "channel": channel_name}
-        q.update(**kwargs)
-        log.debug("_subscribe: %s", q)
-        self.conn.send(**q)
-        self.channel_configs[identifier] = q
+        if not identifier in self.channel_directory :
+            q = {"event": "subscribe", "channel": channel_name}
+            q.update(**kwargs)
+            log.debug("_subscribe: %s", q)
+            self.conn.send(**q)
+            self.channel_configs[identifier] = q
 
     def _unsubscribe(self, channel_name, identifier, **kwargs):
 
-        channel_id = self.channel_configs[identifier]
-        q = {"event": "unsubscribe", "chanId": channel_id}
-        q.update(kwargs)
-        self.conn.send(**q)
-        self.channel_configs.pop(identifier)
+        if identifier in self.channel_directory:
+            channel_id = self.channel_directory[identifier]
+            q = {"event": "unsubscribe", "chanId": channel_id}
+            q.update(kwargs)
+            log.debug("_unsubscribe: %s ", q )
+            self.conn.send(**q)
+            if identifier in self.channel_configs:
+                self.channel_configs.pop(identifier)
+
 
     def config(self, decimals_as_strings=True, ts_as_dates=False,
                sequencing=False, ts=False, **kwargs):

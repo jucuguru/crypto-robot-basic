@@ -20,7 +20,7 @@ from  abc import abstractmethod
 
 ## private import package
 
-from qbrobot import tsettings
+from qbrobot import qsettings
 from qbrobot.util import log
 
 #
@@ -49,7 +49,7 @@ class StrategyBase():
             None
         """
         #signal only works in main thread
-        atexit.register(self.exit)
+        #atexit.register(self.exit)
         #signal.signal(signal.SIGTERM, self.exit)
 
         self.db = databoard
@@ -77,7 +77,7 @@ class StrategyBase():
         """
         while self.getStatus() :
             pass
-            time.sleep( tsettings.INTERVAL_STRATEGY)
+            time.sleep( qsettings.INTERVAL_STRATEGY)
 
     def stop(self):
         """

@@ -20,7 +20,7 @@ import traceback
 
 ## private import package
 
-from qbrobot import tsettings
+from qbrobot import qsettings
 from qbrobot.util import log
 from qbrobot.strategy  import StrategyBase
 
@@ -42,53 +42,58 @@ class BMBFStrategy(StrategyBase):
         """
         logger.info("BMBFStrategy start to play...")
 
-        symbol = 'ETHUSD'
         while self.getStatus() :
-            try :
-                """
-                timestamp, funding_rate, next_funding_rate = self.__bitmex_fetch_funding_rate(symbol)
-                logger.info("bitmex_fetch_funding_rate %s %f , %f "%(timestamp, funding_rate, next_funding_rate))
-              
+            
+            symbol = 'ETHUSD'
+            exchange='bitmex'
+            table = 'trade'
+            symbols = self.db.get_symbols(exchange, table)
+            logger.info( " tables %s , symbols %s" % (self.db.get_tables(exchange) , symbols ) )
 
-                timestamp, lastprice = self.__bitmex_fetch_lastprice(symbol)
-                logger.info("bitmex_fetch_lastprice %s %f  "%(timestamp, lastprice))
-              
+            timestamp, instrument = self.__bitmex_fetch_instrument(symbol)
+            logger.debug("symbol - %s , instrument - %s", symbol, instrument)
+            if instrument:
+                logger.info("bitmex_fetch_funding_rate %s - %s - %s ", 
+                        timestamp, instrument['fundingRate'], instrument['indicativeFundingRate']*0.3)
+          
 
-                timestamp, bidprice, askprice, result = self.__bitmex_fetch_orderbook(symbol)
-                logger.info("bitmex_fetch_orderbook %s %f , %f "%(timestamp, bidprice, askprice ))
-              
-                
-                timestamp, ticker = self.__bitfinex_fetch_ticker(symbol)
-                #logger.info("__bitfinex_fetch_ticker %s %s, "%(timestamp, ticker ))
-                if ticker and len(ticker):
-                    lastprice = ticker[0][6]
-                else:
-                    lastprice = 0.0 
-                logger.info("__bitfinex_fetch_ticker %s %f, "%(timestamp, lastprice ))
+            timestamp, lastprice, trade = self.__bitmex_fetch_trade(symbol)
+            logger.info("bitmex_fetch_lastprice %s %f %s"%(timestamp, lastprice, str(trade)))
+          
 
-                timestamp, bidprice, askprice, result = self.__bitfinex_fetch_order_book(symbol)
-                logger.info("__bitfinex_fetch_order_book %s %f %f.  result[%s] "%(timestamp, bidprice, askprice , result ))
-                """
-                symbol = 'BTCUSD'
-                timestamp, ticker = self.__bitfinex_fetch_ticker(symbol)
-                lastprice = ticker[0][6] if ticker else 0.0
-                logger.info("bitfinex_fetch_ticker %s %f"%(timestamp , lastprice))
+            timestamp, bidprice, askprice, result = self.__bitmex_fetch_orderbook(symbol)
+            logger.info("bitmex_fetch_orderbook - %s - %f - %f %s ", timestamp, bidprice, askprice, result)
 
-                symbol = 'USDT/USD'
-                timestamp, ticker = self.__bittrex_fetch_ticker(symbol)
-                lastprice = ticker['last'] if ticker else 0.0
-                logger.info("bittrex_fetch_ticker %s %f"%(timestamp , lastprice))
+            
+            timestamp, ticker = self.__bitfinex_fetch_ticker(symbol)
+            lastprice = ticker[-1]['last_price'] if ticker and len(ticker) and len(ticker[0]) > 6 else  0.0                 
+            logger.info("bitfinex_fetch_ticker %s %s %f", symbol, timestamp , lastprice)
+            
+            timestamp, trade = self.__bitfinex_fetch_trade(symbol)
+            lastprice = trade[-1]['price'] if trade and len(trade) else  0.0
+            logger.info("bitfinex_fetch_trade %s %s %f %s", symbol, timestamp , lastprice, trade)
+
+            timestamp, bidprice, askprice, result = self.__bitfinex_fetch_order_book(symbol)
+            logger.info("__bitfinex_fetch_order_book %s %f %f.  result[%s] ", timestamp, bidprice, askprice , result )
+            
+            symbol = 'BTCUSD'
+            timestamp, ticker = self.__bitfinex_fetch_ticker(symbol)
+            lastprice = ticker[-1]['last_price'] if ticker and len(ticker) and len(ticker[0]) > 6  else 0.0
+            logger.info("bitfinex_fetch_ticker %s %s %f", symbol, timestamp , lastprice)
+
+            """
+            symbol = 'USDT/USD'
+            timestamp, ticker = self.__bittrex_fetch_ticker(symbol)
+            lastprice = ticker['last'] if ticker else 0.0
+            logger.info("bittrex_fetch_ticker %s %f"%(timestamp , lastprice))
 
 
-                timestamp, ticker= self.__kraken_fetch_ticker(symbol)
-                lastprice = ticker['last'] if ticker else 0.0
-                logger.info("kraken_fetch_ticker %s %f"%(timestamp , lastprice))
+            timestamp, ticker= self.__kraken_fetch_ticker(symbol)
+            lastprice = ticker['last'] if ticker else 0.0
+            logger.info("kraken_fetch_ticker %s %f"%(timestamp , lastprice))
+            """
 
-
-            except Exception as e:
-                logger.warning('%s warning %s'%(__class__.__name__, str(e) ) )
-
-            time.sleep( tsettings.INTERVAL_STRATEGY*10)
+            time.sleep( qsettings.INTERVAL_STRATEGY*10)
 
 
     #TODO
@@ -110,41 +115,37 @@ class BMBFStrategy(StrategyBase):
     #
     # built-in functions 
     #
-    @staticmethod
-    def sort_by(array, key, descending=False):
-        return sorted(array, key=lambda k: k[key] if k[key] is not None else "", reverse=descending)
 
-    def __bitmex_fetch_funding_rate( self, symbol ):
+    def __bitmex_fetch_instrument( self, symbol ):
         """
-            __bitmex_fetch_funding_rate 从 databoard 中读取最新的 symbol 合约中的 funding_rate
+            __bitmex_fetch_instrument 从 databoard 中读取最新的 symbol 合约中的 funding_rate
         Parameters:
             symbol - 指定合约的品种
         Returns:
-            timestamp, funding_rate, next_funding_rate
+            timestamp, instrument
         Raises:
             None
         """
-        funding_rate = 0.0
-        next_funding_rate = 0.0
         timestamp = ''
+        instrument = None
 
         exchange = 'bitmex'
         table = 'instrument'
 
         symbols = self.db.get_symbols(exchange, table)
+        #logger.info( " tables %s , symbols %s" % (self.db.get_tables(exchange) , symbols ) )
         if symbols and symbol in symbols:
             data = self.db.get_data( exchange, table, symbol)
-            funding_rate = data[0]['fundingRate']
-            next_funding_rate = data[0]['indicativeFundingRate']*0.3
-            timestamp = data[0]['timestamp']
+            logger.info("table - %s , symbol - %s , data - %s", table, symbol, str(data) )
+            instrument = data[0] if data else None
+            timestamp = instrument['timestamp']
             
+        return ( timestamp, instrument )
 
-        return (timestamp, funding_rate, next_funding_rate)
 
-    
-    def __bitmex_fetch_lastprice( self, symbol ):
+    def __bitmex_fetch_trade( self, symbol ):
         """
-            __bitmex_fetch_lastprice 从 databoard 中读取最新的 symbol trader 的 最新价 lastprice
+            __bitmex_fetch_trade 从 databoard 中读取最新的 symbol trader 的 最新价 lastprice
         Parameters:
             symbol - 指定合约的品种
         Returns:
@@ -152,8 +153,9 @@ class BMBFStrategy(StrategyBase):
         Raises:
             None
         """
-        lastprice = 0.0
         timestamp = ''
+        lastprice = 0.0
+        trade = None
 
         exchange = 'bitmex'
         table = 'trade'
@@ -161,10 +163,13 @@ class BMBFStrategy(StrategyBase):
         symbols = self.db.get_symbols(exchange, table)
         if symbols and symbol in symbols:
             data = self.db.get_data( exchange, table, symbol)
-            lastprice = round( data[0]['price'] , 2 )
-            timestamp = data[0]['timestamp']
+            logger.info("table - %s , symbol - %s , data - %s", table, symbol, str(data) )
+            trade = data[-1] if data else None
+            if trade:
+                lastprice = round( trade['price'] , 2 )
+                timestamp = trade['timestamp']
 
-        return (timestamp, lastprice )
+        return ( timestamp, lastprice , trade )
 
     
     def __bitmex_fetch_orderbook( self, symbol ):
@@ -177,7 +182,7 @@ class BMBFStrategy(StrategyBase):
         Raises:
             None
         """
-        timestamp = ''
+        timestamp=''
         bidprice = 0.0
         askprice = 0.0
 
@@ -190,38 +195,25 @@ class BMBFStrategy(StrategyBase):
         }
 
         exchange = 'bitmex'
-        table = 'orderBookL2_25'
+        table = 'book'
         try :
             symbols = self.db.get_symbols(exchange, table)
             if symbols and symbol in symbols:
-                orderbook = self.db.get_data( exchange, table, symbol)
-                #logger.info( "orderbook len %d %s"%( len(orderbook) , orderbook[0]) )
-                for o in range(0, len(orderbook)):
-                    order = orderbook[o]
-                    side = 'asks' if (order['side'] == 'Sell') else 'bids'
-                    amount = round(order['size'],2)
-                    price  = round(order['price'],2)
-                    result[side].append([price, amount])
-
-                #logger.info( "1111 bids len %d , asks len %d"%( len(result['bids']) , len(result['asks']) ) )
-
-                result['bids'] = self.sort_by(result['bids'], 0, True)
-                result['asks'] = self.sort_by(result['asks'], 0)
-
-                #logger.info( "222 bids len %d , asks len %d"%( len(result['bids']) , len(result['asks']) ) )
-
-                # [0] --price , [1]---amount
+                data = self.db.get_data( exchange, table, symbol)
+                            # [0] --price , [1]---amount
+                result = data
                 if len( result['bids'] ):
                     bidprice = result['bids'][0][0]
                 if len( result['asks'] ):
                     askprice = result['asks'][0][0]
 
-                result['timestamp'] = time.time()
+                logger.info("table - %s , symbol - %s , data - %s", table, symbol, str(data) )
+                timestamp = result['timestamp']
                 #logger.info( "333 orderbook bid %d , ask %d"%( bidprice , askprice ) )
         except Exception as e :
             logger.warning('%s wrongs %s'%(__class__.__name__, str(e) ) )
 
-        return (timestamp, bidprice, askprice, result)
+        return ( timestamp, bidprice, askprice, result)
 
     
     def __bitfinex_fetch_ticker( self, symbol ):
@@ -236,26 +228,55 @@ class BMBFStrategy(StrategyBase):
             None
         """
         ticker = None
-        timestamp = 0.0
+        timestamp = ''
 
         exchange = 'bitfinex'
         table = 'ticker'
 
         try:
             symbols = self.db.get_symbols(exchange, table)
-            logger.info( "bitfinex tables %s , symbols %s" % (self.db.get_tables(exchange) , symbols ) )
+            #logger.info( "bitfinex tables %s , symbols %s" % (self.db.get_tables(exchange) , symbols ) )
             if symbols and symbol in symbols:
                 data = self.db.get_data( exchange, table, symbol)
+                #logger.info( "11111  ~%s~ ~%s~ " ,  data , symbol )
                 if data:
-                    ticker, times = data
-                    timestamp = datetime.utcfromtimestamp(times).strftime('%Y-%m-%d %H:%M:%S.%f')
-
-                #logger.info( "  %s " % ( ticker ) )
-
+                    ticker = data
+                    timestamp = data[-1]['timestamp']
         except Exception as e :
             logger.warning('%s wrongs %s'%(__class__.__name__, str(e) ) )
 
-        return timestamp, ticker
+        return  (timestamp, ticker)
+
+    
+    def __bitfinex_fetch_trade( self, symbol ):
+        """
+            __bitfinex_fetch_trade 从 databoard 中读取最新的 symbol 合约中的 __bitfinex_fetch_trade
+        Parameters:
+            symbol - 指定合约的品种
+        Returns:
+            timestamp, trade
+        Raises:
+            None
+        """
+        trade = None
+        timestamp = ''
+
+        exchange = 'bitfinex'
+        table = 'trade'
+
+        try:
+            symbols = self.db.get_symbols(exchange, table)
+            #logger.info( "bitfinex tables %s , symbols %s" % (self.db.get_tables(exchange) , symbols ) )
+            if symbols and symbol in symbols:
+                data = self.db.get_data( exchange, table, symbol)
+                #logger.info( "11111  ~%s~ ~%s~ " ,  data , symbol )
+                if data:
+                    trade = data
+                    timestamp = trade[-1]['timestamp']
+        except Exception as e :
+            logger.warning('%s wrongs %s'%(__class__.__name__, str(e) ) )
+
+        return  (timestamp, trade)
 
     
     def __bitfinex_fetch_order_book( self, symbol ):
@@ -273,13 +294,9 @@ class BMBFStrategy(StrategyBase):
         Raises:
             None
         """
-        # 定位常量
-        PRICE = 0 
-        COUNT = 1 
-        AMOUNT = 2 
 
         orderbook = None
-        timestamp = 0.0
+        timestamp = ''
         bidprice = 0.0
         askprice = 0.0
 
@@ -299,34 +316,15 @@ class BMBFStrategy(StrategyBase):
             symbols = self.db.get_symbols(exchange, table)
             
             if symbols and symbol in symbols:
-                orderbook, times = self.db.get_data( exchange, table, symbol)
-            
-                if orderbook and len(orderbook ):
-                    
-                    for o in range(0, len(orderbook)):
-                        order = orderbook[o]
-                        side = 'bids' if (order[AMOUNT] > 0 ) else 'asks'
-                        amount = round(order[AMOUNT],2)
-                        price  = round(order[PRICE],2)
-                        result[side].append([price, amount])
+                orderbook = self.db.get_data( exchange, table, symbol)
 
-                    #logger.info( "4444444444 bids %s , asks %s"%( result['bids'] , result['asks'] ) )
-
-                    result['bids'] = self.sort_by(result['bids'], 0, True)
-                    result['asks'] = self.sort_by(result['asks'], 0)
-
-                    #logger.info( "222 bids len %d , asks len %d"%( len(result['bids']) , len(result['asks']) ) )
-
-                    # [0] --price , [1]---amount
-                    if len( result['bids'] ):
-                        bidprice = result['bids'][0][0]
-                    if len( result['asks'] ):
-                        askprice = result['asks'][0][0]
-
-                    result['timestamp'] = time.time()
-
+                result = orderbook
+                if len( result['bids'] ):
+                    bidprice = result['bids'][0][0]
+                if len( result['asks'] ):
+                    askprice = result['asks'][0][0]
                 #logger.info("  %s %f %f .  result[%s] "%(timestamp, bidprice, askprice , result ))
-
+                timestamp = result['timestamp']
         except Exception as e:
             logger.warning('%s wrongs %s'%(__class__.__name__, str(e) ) )
 
@@ -352,7 +350,7 @@ class BMBFStrategy(StrategyBase):
             None
         """
         ticker = None
-        timestamp = 0.0
+        timestamp = ''
 
         exchange = 'bittrex'
         table = 'ticker'
@@ -368,7 +366,7 @@ class BMBFStrategy(StrategyBase):
         except Exception as e :
             logger.warning('%s wrongs %s'%(__class__.__name__, str(e) ) )
 
-        return timestamp, ticker
+        return (timestamp, ticker)
 
 
     

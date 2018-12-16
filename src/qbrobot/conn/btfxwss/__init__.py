@@ -1,3 +1,3 @@
-from btfxwss.client import BtfxWss
+from qbrobot.conn.btfxwss.client import BtfxWss
 
 

@@ -14,8 +14,8 @@ from collections import OrderedDict
 import websocket
 
 # Init Logging Facilities
-log = logging.getLogger(__name__)
-
+#log = logging.getLogger(__name__)
+log = logging.getLogger()
 
 class WebSocketConnection(Thread):
     """Websocket Connection Thread
@@ -205,8 +205,9 @@ class WebSocketConnection(Thread):
 
     def _on_error(self, ws, error):
         self.log.info("Connection Error - %s"%(str(error) ) ) 
-        self.reconnect_required.set()
-        self.connected.clear()
+        if self.connected.is_set():
+            self.reconnect_required.set()
+            self.connected.clear()
 
     def _stop_timers(self):
         """Stops ping, pong and connection timers."""

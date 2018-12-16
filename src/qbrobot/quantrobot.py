@@ -60,14 +60,17 @@ class QuantRobot( Thread ):
         # 2.1 创建Queue用于与前方的API connector通讯
         Thread.__init__(self)
 
+        # 测试是不是两个同时捕捉
         atexit.register(self.exit)
-        signal.signal(signal.SIGTERM, self.exit)
+        #signal.signal(signal.SIGINT, self.exit)
+        #signal.signal(signal.SIGTERM, self.exit)
 
         logger.info( 'Initialize Quant Robot...' )
         data_q = Queue()
         self.q = data_q 
         self.cm = None
         self.dm = None
+        self.strategy = None
 
         # 2.2 创建链接管理器线程，添加链接
         self.cm = ConnectorManager( self.q )
@@ -95,11 +98,11 @@ class QuantRobot( Thread ):
         # 3.调用策略线程。。。
         logger.info("Quant Robot start to run...")
         if self.live:
-            strategy = BMBFStrategy(databoard = self.dm, connectormanager = self.cm )
-            strategy.start()
+            self.strategy = BMBFStrategy(databoard = self.dm, connectormanager = self.cm )
+            self.strategy.start()
 
         while self.live  :
-            if strategy.getStatus() :
+            if self.strategy.getStatus() :
                 """
                 inst_xbt = self.dm.get_data( 'bitmex', 'instrument', 'XBTUSD' )
                 inst_eth = self.dm.get_data( 'bitmex', 'instrument', 'ETHUSD' )
@@ -139,10 +142,10 @@ class QuantRobot( Thread ):
                 sys.exit(1)
             """
 
-        strategy.stop()
-
 
     def exit(self):
+        self.strategy.exit()
+
         if self.cm :
             self.cm.exit()
 

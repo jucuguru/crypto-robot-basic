@@ -5,7 +5,8 @@ from queue import Empty
 from multiprocessing import Queue
 from collections import defaultdict
 
-log = logging.getLogger(__name__)
+#log = logging.getLogger(__name__)
+log = logging.getLogger()
 
 
 class QueueProcessor(Thread):

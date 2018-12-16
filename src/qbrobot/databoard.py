@@ -21,6 +21,7 @@ from multiprocessing import Queue
 
 from qbrobot import qsettings
 from qbrobot.util import log
+from qbrobot.conn.subscribe import SUBSCRIPTION
 
 #
 # Helpers
@@ -71,7 +72,7 @@ class DataBoard():
         """
         if exchange in self.datastore :
             if table in self.datastore[exchange]:
-                if table in qsettings.SUBSCRIBE_TOPICS['GENERIC_SUBSCRIBE_TOPICS'] :
+                if not table in SUBSCRIPTION['type']['SYMBOL']  :
                     return self.datastore[exchange][table]
                 else :
                     if symbol in self.datastore[exchange][table]:
@@ -117,10 +118,10 @@ class DataBoard():
         if symbol not in self.datastore[exchange][table]:
             self.datastore[exchange][table][symbol] = None
         """
-        if table in qsettings.SUBSCRIBE_TOPICS['GENERIC_SUBSCRIBE_TOPICS'] :
-            self.datastore[exchange][table] = data
-        else :
+        if table in SUBSCRIPTION['type']['SYMBOL'] :
             self.datastore[exchange][table][symbol] = data
+        else:
+            self.datastore[exchange][table] = data
 
     def start(self):
         t = Thread( target = self.run )
