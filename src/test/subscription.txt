@@ -1,0 +1,48 @@
+wsdump.py wss://api.bitfinex.com/ws/2
+订阅操作命令
+
+{ "event": "subscribe", "channel": "ticker", "symbol": "tBTCUSD"}  -- OK
+< {"event":"subscribed","channel":"ticker","chanId":9946,"symbol":"tBTCUSD","pair":"BTCUSD"}
+< [9946,[3319.9,47.63419218,3320,38.3430959,-160.6,-0.0461,3320,25742.72186632,3520.5,3296.3]]
+< [9946,[3319.9,62.71060316,3320,44.68761049,-166.25546267,-0.0477,3319.9288245,25706.62774833,3520.5,3296.3]]
+            BID  bid_size.  ask    ask_siz.   daily_change dc_perc, last_price  volume          high   low
+{ "event": "unsubscribe", "chanId": "9946"}
+
+{ "event": "subscribe", "channel": "book", "symbol": "tETHUSD"}  --- OK
+{"event":"subscribed","channel":"book","chanId":159765,"symbol":"tETHUSD","prec":"P0","freq":"F0","len":"25","pair":"ETHUSD"}
+< [159765,[[87.363,2,43.83119898],[87.361,2,23],[87.36,3,321.63147042],[87.357,1,4.67437569],[87.337,2,101],[87.306,1,19.05558514],[87.285,1,0.2],[87.284,1,2.2],[87.253,1,20.80289334],[87.252,1,0.37299549],[87.229,2,10.62815554],[87.227,1,8],[87.22,1,20],[87.21,1,12],[87.199,3,289],[87.19,1,32.8],[87.15,1,19.08065243],[87.145,1,6.97471665],[87.138,1,390.04977804],[87.137,1,2.2899],[87.135,1,250.12693717],[87.13,1,2],[87.11,1,33],[87.105,2,18.59906069],[87.094,2,53.46472129],[87.367,1,-3.99240442],[87.37,1,-11],[87.378,1,-7.98796277],[87.386,2,-34.88980637],[87.387,1,-7.62802573],[87.39,1,-10],[87.391,1,-11.78848169],[87.4,1,-50],[87.428,1,-17.17072278],[87.451,2,-3.86344328],[87.452,1,-5],[87.458,2,-19.67531069],[87.465,1,-20],[87.502,1,-3],[87.506,1,-7.67553632],[87.509,1,-20],[87.529,1,-8],[87.54,1,-46.49951641],[87.552,1,-0.24034639],[87.556,1,-5],[87.566,1,-87.29775611],[87.575,1,-23],[87.58,1,-80.42109906],[87.581,1,-46.49811102],[87.584,1,-6.97492747]]]
+< [159765,[87.363,0,1]]
+< [159765,[87.306,0,1]]
+< [159765,[87.253,0,1]]
+    [chanId  [price,count,amount]]
+{ "event": "unsubscribe", "chanId": "159765"}
+
+
+{ "event": "subscribe", "channel": "trades", "symbol": "tETHUSD"} --- OK 
+{ "event": "unsubscribe", "chanId": "159765"}
+
+
+
+
+wsdump.py  wss://testnet.bitmex.com/realtime
+wsdump.py  wss://www.bitmex.com/realtime     正式
+
+订阅操作命令
+{"op": "subscribe", "args": ["orderBookL2:XBTUSD"]}
+{"op": "unsubscribe", "args": ["orderBookL2:XBTUSD"]}
+
+{"op": "subscribe", "args": ["trade:XBTUSD","instrument:XBTUSD"]}
+{"op": "unsubscribe", "args": ["trade:XBTUSD","instrument:XBTUSD"]}
+
+{"op": "subscribe", "args": ["quote:[XBTUSD,ETHUSD]"]}----wrong
+{"op": "subscribe", "args": ["quote:ETHUSD"]}
+{"op": "subscribe", "args": ["quote:ETHUSD", "quote:XBTUSD"]}
+< {"table":"quote","action":"insert","data":[{"timestamp":"2018-12-14T03:24:50.028Z","symbol":"ETHUSD","bidSize":10,"bidPrice":84.85,"askPrice":85.25,"askSize":10012},{"timestamp":"2018-12-14T03:24:50.045Z","symbol":"ETHUSD","bidSize":58910,"bidPrice":84.85,"askPrice":84.95,"askSize":176700}]}
+{"op": "unsubscribe", "args": ["quote:ETHUSD"]}
+{"op": "unsubscribe", "args": ["quote:XBTUSD"]}
+
+{"op": "subscribe", "args": ["orderBookL2_25:ETHUSD"]}
+< {"table":"orderBookL2_25","action":"update","data":[{"symbol":"ETHUSD","id":38699998302,"side":"Sell","size":58273}]}
+{"table":"orderBookL2_25","action":"update","data":[{"symbol":"ETHUSD","id":38699998304,"side":"Buy","size":176588}]}
+{"op": "unsubscribe", "args": ["orderBookL2_25:ETHUSD"]}
+
